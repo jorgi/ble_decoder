@@ -22,15 +22,6 @@ wifi:
             - lambda: |-
                 id(public_ip).publish_state(body);
 
-mqtt:
-  id: mqtt_client
-  broker: !secret mqtt_broker
-  username: !secret mqtt_user
-  password: !secret mqtt_password
-  discovery: true
-  discovery_prefix: homeassistant
-  topic_prefix: bthome_decoder
-
 esp32:
   board: esp32dev
   framework:
@@ -55,9 +46,13 @@ logger:
   level: DEBUG
 
 api:
-
 ota:
   platform: esphome
+
+mqtt:
+  broker: !secret mqtt_broker
+  discovery: true
+  discovery_prefix: homeassistant
 
 esp32_ble_tracker:
   scan_parameters:
@@ -66,40 +61,79 @@ esp32_ble_tracker:
     interval: 100ms
     window: 99ms
   on_ble_service_data_advertise:
-    - mac_address: 38:1F:8D:58:11:57
-      service_uuid: FCD2
-      then:
+    - then:
         - lambda: |-
-            ESP_LOGD("ble_adv", "BT2BEE-BTH01 data: %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x ", x[0],x[1],x[2],x[3],x[4],x[5],x[6],x[7],x[8],x[9],x[10],x[11],x[12],x[13],x[14],x[15],x[16]);
-            float temp = (((x[6] & 0xff) | (x[7] << 8)))/100.0;
-            float hum = (((x[9] & 0xff) | (x[10] << 8)))/100.0;
-            float volt = (((x[12] & 0xff) | (x[13] << 8)))/1000.0;
-            if(x[5]==0x02 && x[8]==0x03 && x[11]==0x0C && temp>-40 && temp<100 && hum>0 && hum<101 && volt>0 && volt<4) {
-              id(mqtt_client).publish("bthome_decoder/BT2BEE-BTH01/temperature", to_string(temp));
-              id(mqtt_client).publish("bthome_decoder/BT2BEE-BTH01/humidity", to_string(hum));
-              id(mqtt_client).publish("bthome_decoder/BT2BEE-BTH01/voltage", to_string(volt));
-            }
-    - mac_address: 38:1F:8D:93:A1:2D
-      service_uuid: FCD2
-      then:
-        - lambda: |-
-            ESP_LOGD("ble_adv", "TH05 data: %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x ", x[0],x[1],x[2],x[3],x[4],x[5],x[6],x[7],x[8],x[9],x[10],x[11],x[12],x[13],x[14],x[15],x[16]);
-            float temp = (((x[6] & 0xff) | (x[7] << 8)))/100.0;
-            float hum = (((x[9] & 0xff) | (x[10] << 8)))/100.0;
-            float volt = (((x[12] & 0xff) | (x[13] << 8)))/1000.0;
-            if(x[5]==0x02 && x[8]==0x03 && x[11]==0x0C && temp>-40 && temp<100 && hum>0 && hum<101 && volt>0 && volt<4) {
-              id(mqtt_client).publish("bthome_decoder/TH05/temperature", to_string(temp));
-              id(mqtt_client).publish("bthome_decoder/TH05/humidity", to_string(hum));
-              id(mqtt_client).publish("bthome_decoder/TH05/voltage", to_string(volt));
+            std::string mac = x.get_address().str();
+            float temp = (((x[6] & 0xff) | (x[7] & 0xff) << 8)) / 100.0;
+            float hum = (((x[9] & 0xff) | (x[10] & 0xff) << 8)) / 100.0;
+            float volt = (((x[12] & 0xff) | (x[13] & 0xff) << 8)) / 1000.0;
+
+            if (x[5]==0x02 && x[8]==0x03 && x[11]==0x0C && temp > -40 && temp < 100 && hum >= 0 && hum <= 100 && volt > 0 && volt < 4) {
+              std::string id_base;
+              bool found = false;
+              for (int i = 0; i < id(device_count); i++) {
+                if (id(device_mac)[i] == mac) {
+                  id_base = id(device_name)[i];
+                  found = true;
+                  break;
+                }
+              }
+              if (!found && id(device_count) < 10) {
+                id(device_mac)[id(device_count)] = mac;
+                id(device_name)[id(device_count)] = "device" + std::to_string(id(device_count));
+                id_base = id(device_name)[id(device_count)];
+                id(device_count)++;
+              }
+              if (id_base.length() > 0) {
+                ESPHome::mqtt::publish("homeassistant/sensor/" + id_base + "_temperature/state", to_string(temp));
+                ESPHome::mqtt::publish("homeassistant/sensor/" + id_base + "_humidity/state", to_string(hum));
+                ESPHome::mqtt::publish("homeassistant/sensor/" + id_base + "_voltage/state", to_string(volt));
+              }
             }
 
+globals:
+  - id: device_count
+    type: int
+    initial_value: '0'
+  - id: device_mac
+    type: std::string[10]
+    restore_value: no
+  - id: device_name
+    type: std::string[10]
+    restore_value: no
+
+sensor:
+  - platform: uptime
+    name: Uptime
+    update_interval: 60s
+  - platform: internal_temperature
+    name: "Internal Temperature"
+
+binary_sensor:
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT is in Fault state"
+    type: DEVICE_STATE_FAULT
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT has Error"
+    type: CHARGER_ERROR
+
 text_sensor:
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT state"
+    type: DEVICE_STATE
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT Error reason"
+    type: CHARGER_ERROR
   - platform: template
     name: "Public IP"
     id: public_ip
     entity_category: "diagnostic"
-  - platform: uptime
-    name: "Uptime"
-    update_interval: 60s
-    format:
-      separator: " "
+
+victron_ble:
+  - id: MySmartSolar1
+    mac_address: "d3149369dd42"
+    bindkey: "c982879851b676d9c3d9b5933d78cc6b"

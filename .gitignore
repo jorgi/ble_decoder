@@ -1,0 +1,7 @@
+secrets.yaml
+*.pyc
+__pycache__/
+build/
+.vscode/
+*.log
+.DS_Store
