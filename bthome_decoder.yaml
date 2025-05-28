@@ -50,7 +50,9 @@ ota:
   platform: esphome
 
 mqtt:
-  broker: !secret mqtt_broker
+  broker: !secret mqtt_host
+  username: !secret mqtt_username
+  password: !secret mqtt_password
   discovery: true
   discovery_prefix: homeassistant
 
