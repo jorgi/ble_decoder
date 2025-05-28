@@ -1,0 +1,44 @@
+sensor:
+  - platform: ble_rssi
+    mac_address: '38:1F:8D:93:A1:2D'
+    name: "RSSI BTH01"
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 10
+
+  - platform: template
+    name: "BTH01 Temperature"
+    id: BTH01_temperature_
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 2
+    filters:
+      - median:
+          window_size: 7
+          send_every: 6
+
+  - platform: template
+    name: "BTH01 Humidity"
+    id: BTH01_humidity_
+    unit_of_measurement: "%"
+    device_class: humidity
+    state_class: measurement
+    accuracy_decimals: 2
+    filters:
+      - median:
+          window_size: 7
+          send_every: 6
+
+  - platform: template
+    name: "BTH01 Voltage"
+    id: BTH01_volt_
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 3
+    filters:
+      - median:
+          window_size: 7
+          send_every: 6

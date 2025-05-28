@@ -1,0 +1,31 @@
+esp32_ble_tracker:
+  scan_parameters:
+    active: false
+    duration: 33s
+    interval: 100ms
+    window: 99ms
+
+  on_ble_service_data_advertise:
+    then:
+      - lambda: |-
+          const std::string mac = x.get_address().to_string();
+          ESP_LOGD("ble_adv", "BLE Adv from %s", mac.c_str());
+          int16_t temp_int = (x[6] | x[7] << 8);
+          float temp = temp_int / 100.0;
+          float hum = (x[9] | x[10] << 8) / 100.0;
+          float volt = (x[12] | x[13] << 8) / 1000.0;
+          ESP_LOGD("ble_data", "Parsed: T=%.2f, H=%.2f, V=%.3f", temp, hum, volt);
+
+          if (mac == "38:1F:8D:58:11:57") {
+            if (x[5]==0x02 && x[8]==0x03 && x[11]==0x0C && temp>-40 && temp<100 && hum>=0 && hum<=100 && volt>0 && volt<4) {
+              id(BT2BEE_BTH01_temperature_).publish_state(temp);
+              id(BT2BEE_BTH01_humidity_).publish_state(hum);
+              id(BT2BEE_BTH01_volt_).publish_state(volt);
+            }
+          } else if (mac == "38:1F:8D:93:A1:2D") {
+            if (x[5]==0x02 && x[8]==0x03 && x[11]==0x0C && temp>-20 && temp<100 && hum>=0 && hum<=100 && volt>0 && volt<4) {
+              id(BTH01_temperature_).publish_state(temp);
+              id(BTH01_humidity_).publish_state(hum);
+              id(BTH01_volt_).publish_state(volt);
+            }
+          }

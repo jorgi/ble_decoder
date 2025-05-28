@@ -1,0 +1,17 @@
+esphome:
+  name: bthome_decoder
+  platformio_options:
+    board_build.f_cpu: 80000000L
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+external_components:
+  - source: github://Fabian-Schmidt/esphome-victron_ble
+
+packages:
+  base: !include packages/ble_sensor/bth_sensor_base.yaml
+  sensor_BT2BEE: !include packages/ble_sensor/sensor_BT2BEE.yaml
+  sensor_BTH01: !include packages/ble_sensor/sensor_BTH01.yaml
