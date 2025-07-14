@@ -1,0 +1,153 @@
+esphome:
+  name: bthome-decoder4
+
+wifi:
+  fast_connect: true
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  on_connect:
+    - http_request.get:
+        url: http://ipecho.net/plain
+        capture_response: true
+        on_response:
+          then:
+            - lambda: |-
+                if (!body.empty()) {
+                  id(public_ip).publish_state(body);
+                } else {
+                  ESP_LOGW("wifi", "Failed to fetch public IP.");
+                }
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+
+api:
+
+ota:
+  platform: esphome
+
+mqtt:
+  broker: !secret mqtt_host
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: true
+  discovery_prefix: homeassistant
+  id: mqtt_client
+
+http_request:
+  id: http_client
+
+preferences:
+  flash_write_interval: 10min
+
+external_components:
+  - source: github://Fabian-Schmidt/esphome-victron_ble
+  - source: github://jorgi/esphome-bthome-tracker
+    components: [ bthome_tracker ]
+
+bthome_tracker:
+  - id: bthome_tracker
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+    duration: 15s
+    interval: 320ms
+    window: 300ms
+
+globals:
+  - id: device_count
+    type: int
+    initial_value: '0'
+    restore_value: no
+
+interval:
+  - interval: 3s
+    then:
+      - output.turn_on: blueLED
+      - delay: 150ms
+      - output.turn_off: blueLED
+  - interval: 60s
+    then:
+      - lambda: |-
+          id(mqtt_client)->publish("homeassistant/sensor/MySmartSolar1_battery_voltage/state", 
+                                   esphome::to_string(id(mppt_battery_voltage).state), 1);
+          id(mqtt_client)->publish("homeassistant/sensor/MySmartSolar1_panel_voltage/state", 
+                                   esphome::to_string(id(mppt_panel_voltage).state), 1);
+          id(mqtt_client)->publish("homeassistant/text_sensor/MySmartSolar1_state/state", 
+                                   id(mppt_state).state, 1);
+          id(mqtt_client)->publish("homeassistant/text_sensor/MySmartSolar1_error_reason/state", 
+                                   id(mppt_error_reason).state, 1);
+
+output:
+  - platform: gpio
+    pin: GPIO2
+    id: blueLED
+    inverted: true
+
+sensor:
+  - platform: uptime
+    name: Uptime
+    update_interval: 60s
+  - platform: internal_temperature
+    name: "Internal Temperature"
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT Battery Voltage"
+    type: BATTERY_VOLTAGE
+    id: mppt_battery_voltage
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT Panel Voltage"
+    type: BATTERY_VOLTAGE
+    id: mppt_panel_voltage
+
+text_sensor:
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT State"
+    type: DEVICE_STATE
+    id: mppt_state
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT Error Reason"
+    type: CHARGER_ERROR
+    id: mppt_error_reason
+  - platform: template
+    name: "Public IP"
+    id: public_ip
+    entity_category: "diagnostic"
+
+binary_sensor:
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT is in Fault State"
+    type: DEVICE_STATE_FAULT
+    on_state:
+      then:
+        - mqtt.publish:
+            topic: homeassistant/binary_sensor/MySmartSolar1_fault/state
+            payload: !lambda 'return x ? "ON" : "OFF";'
+            qos: 1
+            retain: true
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT has Error"
+    type: CHARGER_ERROR
+    on_state:
+      then:
+        - mqtt.publish:
+            topic: homeassistant/binary_sensor/MySmartSolar1_error/state
+            payload: !lambda 'return x ? "ON" : "OFF";'
+            qos: 1
+            retain: true
+
+victron_ble:
+  - id: MySmartSolar1
+    mac_address: "d3149369dd42"
+    bindkey: "c982879851b676d9c3d9b5933d78cc6b"

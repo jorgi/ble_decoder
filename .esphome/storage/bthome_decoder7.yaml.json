@@ -1,0 +1,31 @@
+{
+  "storage_version": 1,
+  "name": "bthome-decoder7",
+  "friendly_name": null,
+  "comment": null,
+  "esphome_version": "2025.5.0",
+  "src_version": 1,
+  "address": "bthome-decoder7.local",
+  "web_port": null,
+  "esp_platform": "ESP32",
+  "build_path": "C:\\Users\\jorgi\\Desktop\\esphome2\\.esphome\\build\\bthome-decoder7",
+  "firmware_bin_path": "C:\\Users\\jorgi\\Desktop\\esphome2\\.esphome\\build\\bthome-decoder7\\.pioenvs\\bthome-decoder7\\firmware.bin",
+  "loaded_integrations": [
+    "custom_ble_scanner",
+    "esp32",
+    "esp32_ble",
+    "esp32_ble_tracker",
+    "esphome",
+    "external_components",
+    "json",
+    "logger",
+    "mdns",
+    "mqtt",
+    "network",
+    "preferences",
+    "wifi"
+  ],
+  "no_mdns": false,
+  "framework": "esp-idf",
+  "core_platform": "esp32"
+}

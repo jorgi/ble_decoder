@@ -1,0 +1,101 @@
+esphome:
+  name: bthome-decoder8
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+logger:
+  level: DEBUG
+
+api:
+
+ota:
+  platform: esphome
+
+output:
+  - platform: gpio
+    pin: GPIO2
+    id: blueLED
+    inverted: false
+
+interval:
+  - interval: 3s
+    then:
+      - output.turn_on: blueLED
+      - delay: 150ms
+      - output.turn_off: blueLED
+wifi:
+  fast_connect: true
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  on_connect:
+  - http_request.get:
+      url: http://ipecho.net/plain
+      capture_response: true
+      on_response:
+        then:
+          - lambda: |-
+              if (!body.empty()) {
+                id(public_ip).publish_state(body);
+              } else {
+                ESP_LOGW("wifi", "Failed to fetch public IP.");
+              }
+
+http_request:
+  id: http_client
+  
+preferences:
+  flash_write_interval: 10min  
+
+mqtt:
+  broker: !secret mqtt_host
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: true
+  id: mqtt_client
+
+external_components:
+  - source:
+      type: local
+      path: custom_components/custom_ble_scanner
+
+esp32_ble_tracker:
+  id: esp32_ble_id
+  scan_parameters:
+    active: true
+    duration: 5s
+    interval: 500ms
+    window: 480ms
+
+text_sensor:
+#  - platform: template
+#    name: "BLE Raw Data"
+#    id: ble_raw_data_sensor # This ID is passed to your custom component
+
+  - platform: template
+    name: "Public IP"
+    id: public_ip
+    entity_category: diagnostic   
+    
+  - platform: uptime
+    name: Uptime
+    update_interval: 60s
+    format:
+      separator: " " 
+ 
+custom_ble_scanner:
+  id: my_ble_scanner
+  esp32_ble_id: esp32_ble_id
+  rssi_threshold: -100
+#  ble_raw_data_text_sensor: ble_raw_data_sensor
+
+sensor:
+  - platform: internal_temperature
+    name: "Internal Temperature"
+
+#  - platform: template
+#    name: "BLE Sensor"
+#    id: ble_sensor
+  
+
+

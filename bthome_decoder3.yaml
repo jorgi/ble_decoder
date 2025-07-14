@@ -1,0 +1,279 @@
+esphome:
+  name: bthome_decoder3
+
+wifi:
+  fast_connect: true
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  on_connect:
+    - http_request.get:
+        url: http://ipecho.net/plain
+        capture_response: true
+        on_response:
+          then:
+            - text_sensor.template.publish:
+                id: public_ip
+                state: !lambda 'return x;'
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+
+api:
+
+ota:
+  platform: esphome
+
+mqtt:
+  broker: !secret mqtt_host
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: true
+  discovery_prefix: homeassistant
+  id: mqtt_client
+
+http_request:
+  id: http_client
+
+preferences:
+  flash_write_interval: 10min
+
+external_components:
+  - source: github://Fabian-Schmidt/esphome-victron_ble
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+    duration: 15s
+    interval: 100ms
+    window: 99ms
+  on_ble_advertise:
+    - then:
+        - lambda: |-
+            #include <string>
+            #include <algorithm>
+            #include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
+            using namespace esphome::esp32_ble_tracker;
+            auto& device = x;  // x is ESPBTDevice
+            auto mac = device.address_str();
+            mac.erase(std::remove(mac.begin(), mac.end(), ':'), mac.end());
+
+            // Filter for service UUID FCD2 (BTHome)
+            auto service_datas = device.get_service_datas();
+            auto it = service_datas.find(0xFCD2);
+            if (it == service_datas.end()) {
+              ESP_LOGD("ble", "No FCD2 service data for %s", mac.c_str());
+              return;
+            }
+
+            // Access service data
+            auto& service_data = it->second;
+            if (service_data.size() < 14) {
+              ESP_LOGD("ble", "Data too short: %d bytes for %s", service_data.size(), mac.c_str());
+              return;
+            }
+
+            // Parse BTHome data
+            float temp = ((service_data[6] | (service_data[7] << 8))) / 100.0;
+            float hum = ((service_data[9] | (service_data[10] << 8))) / 100.0;
+            float volt = ((service_data[12] | (service_data[13] << 8))) / 1000.0;
+
+            // Validate data
+            if (service_data[5] == 0x02 && service_data[8] == 0x03 && service_data[11] == 0x0C &&
+                temp > -40 && temp < 100 && hum >= 0 && hum <= 100 && volt > 0 && volt < 4) {
+              ESP_LOGD("ble", "Valid BTHome data from %s: Temp=%.2f°C, Hum=%.2f%%, Volt=%.3fV",
+                       mac.c_str(), temp, hum, volt);
+
+              std::string id_base;
+              bool found = false;
+              for (int i = 0; i < id(device_count); i++) {
+                if (id(device_mac)[i] == mac) {
+                  id_base = id(device_name)[i];
+                  found = true;
+                  break;
+                }
+              }
+              if (!found && id(device_count) < 10) {
+                id(device_mac)[id(device_count)] = mac;
+                id(device_name)[id(device_count)] = "device" + esphome::to_string(id(device_count));
+                id_base = id(device_name)[id(device_count)];
+                id(device_discovered)[id(device_count)] = false;
+                id(device_count)++;
+                ESP_LOGD("ble", "New device registered: %s as %s", mac.c_str(), id_base.c_str());
+              }
+
+              if (!id_base.empty()) {
+                int idx = -1;
+                for (int i = 0; i < id(device_count); i++) {
+                  if (id(device_name)[i] == id_base) {
+                    idx = i;
+                    break;
+                  }
+                }
+
+                if (idx != -1 && !id(device_discovered)[idx]) {
+                  ESP_LOGD("ble", "Publishing MQTT discovery for %s", id_base.c_str());
+                  // Publish Home Assistant discovery messages
+                  id(mqtt_client)->publish_json(
+                    "homeassistant/sensor/" + id_base + "_temperature/config",
+                    [=](JsonObject root) {
+                      root["name"] = id_base + " Temperature";
+                      root["state_topic"] = "homeassistant/sensor/" + id_base + "_temperature/state";
+                      root["unit_of_measurement"] = "°C";
+                      root["device_class"] = "temperature";
+                      root["unique_id"] = id_base + "_temperature";
+                    }, 1, true);
+
+                  id(mqtt_client)->publish_json(
+                    "homeassistant/sensor/" + id_base + "_humidity/config",
+                    [=](JsonObject root) {
+                      root["name"] = id_base + " Humidity";
+                      root["state_topic"] = "homeassistant/sensor/" + id_base + "_humidity/state";
+                      root["unit_of_measurement"] = "%";
+                      root["device_class"] = "humidity";
+                      root["unique_id"] = id_base + "_humidity";
+                    }, 1, true);
+
+                  id(mqtt_client)->publish_json(
+                    "homeassistant/sensor/" + id_base + "_voltage/config",
+                    [=](JsonObject root) {
+                      root["name"] = id_base + " Voltage";
+                      root["state_topic"] = "homeassistant/sensor/" + id_base + "_voltage/state";
+                      root["unit_of_measurement"] = "V";
+                      root["device_class"] = "voltage";
+                      root["unique_id"] = id_base + "_voltage";
+                    }, 1, true);
+
+                  id(device_discovered)[idx] = true;
+                }
+
+                // Publish sensor values
+                id(mqtt_client)->publish(
+                  "homeassistant/sensor/" + id_base + "_temperature/state",
+                  esphome::to_string(temp), 1);
+                id(mqtt_client)->publish(
+                  "homeassistant/sensor/" + id_base + "_humidity/state",
+                  esphome::to_string(hum), 1);
+                id(mqtt_client)->publish(
+                  "homeassistant/sensor/" + id_base + "_voltage/state",
+                  esphome::to_string(volt), 1);
+                ESP_LOGD("ble", "Published sensor data for %s", id_base.c_str());
+              }
+            }
+  # Optional debugging lambda (uncomment to enable)
+  #  on_ble_advertise:
+  #    - then:
+  #        - lambda: |-
+  #            #include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
+  #            ESP_LOGD("ble_adv", "New BLE device");
+  #            ESP_LOGD("ble_adv", "  address: %s", x.address_str().c_str());
+  #            ESP_LOGD("ble_adv", "  name: %s", x.get_name().c_str());
+  #            ESP_LOGD("ble_adv", "  Advertised service UUIDs:");
+  #            for (auto uuid : x.get_service_uuids()) {
+  #                ESP_LOGD("ble_adv", "    - %s", uuid.to_string().c_str());
+  #            }
+  #            ESP_LOGD("ble_adv", "  Advertised service data:");
+  #            for (auto data : x.get_service_datas()) {
+  #                ESP_LOGD("ble_adv", "    - %s: (length %i)", data.uuid.to_string().c_str(), data.data.size());
+  #            }
+  #            ESP_LOGD("ble_adv", "  Advertised manufacturer data:");
+  #            for (auto data : x.get_manufacturer_datas()) {
+  #                ESP_LOGD("ble_adv", "    - %s: (length %i)", data.uuid.to_string().c_str(), data.data.size());
+  #            }
+
+globals:
+  - id: device_count
+    type: int
+    initial_value: '0'
+  - id: device_mac
+    type: std::string[10]
+    restore_value: no
+  - id: device_name
+    type: std::string[10]
+    restore_value: no
+  - id: device_discovered
+    type: bool[10]
+    restore_value: no
+
+output:
+  - platform: gpio
+    pin: GPIO2
+    id: blueLED
+    inverted: false
+
+interval:
+  - interval: 3s
+    then:
+      - output.turn_on: blueLED
+      - delay: 150ms
+      - output.turn_off: blueLED
+
+text_sensor:
+  - platform: template
+    name: "Public IP"
+    id: public_ip
+    entity_category: diagnostic
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT State"
+    type: DEVICE_STATE
+    id: mppt_state
+    on_value:
+      then:
+        - mqtt.publish:
+            topic: homeassistant/text_sensor/MySmartSolar1_state/state
+            payload: !lambda 'return x;'
+            qos: 1
+            retain: true
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT Error Reason"
+    type: CHARGER_ERROR
+    id: mppt_error_reason
+    on_value:
+      then:
+        - mqtt.publish:
+            topic: homeassistant/text_sensor/MySmartSolar1_error_reason/state
+            payload: !lambda 'return x;'
+            qos: 1
+            retain: true
+
+sensor:
+  - platform: uptime
+    name: Uptime
+    update_interval: 60s
+  - platform: internal_temperature
+    name: "Internal Temperature"
+
+binary_sensor:
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT is in Fault State"
+    type: DEVICE_STATE_FAULT
+    on_state:
+      then:
+        - mqtt.publish:
+            topic: homeassistant/binary_sensor/MySmartSolar1_fault/state
+            payload: !lambda 'return x ? "ON" : "OFF";'
+            qos: 1
+            retain: true
+  - platform: victron_ble
+    victron_ble_id: MySmartSolar1
+    name: "MPPT has Error"
+    type: CHARGER_ERROR
+    on_state:
+      then:
+        - mqtt.publish:
+            topic: homeassistant/binary_sensor/MySmartSolar1_error/state
+            payload: !lambda 'return x ? "ON" : "OFF";'
+            qos: 1
+            retain: true
+
+victron_ble:
+  - id: MySmartSolar1
+    mac_address: "d3149369dd42"
+    bindkey: "c982879851b676d9c3d9b5933d78cc6b"

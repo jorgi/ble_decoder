@@ -84,57 +84,8 @@ esp32_ble_tracker:
     service_uuid: FCD2
     then:
       - lambda: |-
-#          auto service_data = x.get_service_datas()          
-#          #include <string>
-#          #include <algorithm>
+          auto service_data = x.get_service_datas()          
 
-
-
-#          if (service_data.empty()) {
-#            ESP_LOGD("BLE_DEBUG", "No service data found for UUID FCD2");
-#            return;
-#          }
-
-#          std::string hex_output;
-#          for (auto byte : service_data) {
-#            char buf[4];
-#            snprintf(buf, sizeof(buf), "%02X ", byte);
-#            hex_output.append(buf);
-#          }
-
-#          ESP_LOGD("BLE_DEBUG", "Raw BLE Data (Hex): %s", hex_output.c_str());
-
-
-#          if (!x.empty()) {
-#            id(ble_sensor).publish_state(x[0]);
-#          } else {
-#            ESP_LOGW("BLE", "No BLE data found!");
-#          }
-
-          
-#          std::string mac = id(esp32_ble_tracker).address_str(); // Declare 'mac' properly
-
-#          mac.erase(std::remove(mac.begin(), mac.end(), ':'), mac.end());
-
-#          const std::vector<uint8_t>& service_data = service_data;  
-
-#          if (service_data.size() < 14) {
-#            ESP_LOGD("BLE", "Data too short: %d bytes");
-#            return;
-#          }
-
-#          float temp = ((service_data[6] | (service_data[7] << 8))) / 100.0;
-#          float hum = ((service_data[9] | (service_data[10] << 8))) / 100.0;
-#          float volt = ((service_data[12] | (service_data[13] << 8))) / 1000.0;
-
-#          ESP_LOGD("BLE_DEBUG", "Temp: %.2f, Hum: %.2f, Volt: %.3f", temp, hum, volt);
-#          ESP_LOGD("BLE_DEBUG", "BLE Device Found: %s", mac.c_str());
-
-#          std::string id_base = "device_" + mac;
-
-#          id(mqtt_client)->publish("homeassistant/sensor/" + id_base + "_temperature/state", esphome::to_string(temp), 1);
-#          id(mqtt_client)->publish("homeassistant/sensor/" + id_base + "_humidity/state", esphome::to_string(hum), 1);
-#          id(mqtt_client)->publish("homeassistant/sensor/" + id_base + "_voltage/state", esphome::to_string(volt), 1);
 
  
 globals:
